@@ -8,10 +8,22 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-      # Install npm dependencies, cache them correctly
-      # and run all Cypress tests
-      - name: Cypress run
+      
+      - name: Install dependencies
+        run: npm ci
+      
+      - name: Install required packages for Cypress
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libnss3 libgconf-2-4 xvfb
+      
+      - name: Build the application
+        run: npm run build
+      
+      - name: Start the application
+        run: npm start &
+      
+      - name: Run Cypress tests
         uses: cypress-io/github-action@v6
         with:
-          build: npm run build
           start: npm start
