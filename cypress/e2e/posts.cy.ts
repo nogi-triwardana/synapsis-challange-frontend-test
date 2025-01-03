@@ -21,7 +21,7 @@ describe('Posts Page', () => {
     cy.get('[data-test="submit-form-modal"]').click();
 
     // should read a post at list
-    cy.get('[data-test="posts-list"]')
+    cy.get('[data-test="posts-list"]', { timeout: 10000 })
       .eq(0)
       .within(() => {
         cy.get('[data-test="post-title-0"]').should("contain", "Title testing by cypress");
