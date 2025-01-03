@@ -1,118 +1,349 @@
-import Image from 'next/image'
-import { Inter } from 'next/font/google'
+"use client"
 
-const inter = Inter({ subsets: ['latin'] })
+import { useCallback, useContext, useEffect, useState } from 'react';
+import { Dropdown, Form, FormProps, MenuProps, notification } from 'antd';
+import { ConfirmModal, FormModal } from '@/components/molecules';
+import { AtomButton, AtomInput, Pagination, TextArea } from '@/components/atoms';
+import { usePostsList, useUsersList } from '@/hooks/queries';
+import { DeleteOutlined, EditFilled, InfoCircleFilled, SearchOutlined, PlusOutlined, LoadingOutlined, FilterOutlined, CloseOutlined } from '@ant-design/icons';
+import { useRouter } from 'next/router';
+import { useMutation } from '@tanstack/react-query';
+import { postCreateService, postDeleteService, postUpdateService } from '@/services';
+import { Layout } from '@/components/templates';
+import CredentialContext, { TCredentialContext } from '@/providers/CredentialProvider';
+import Cookies from 'js-cookie';
+import { debounce, isNaN } from 'lodash';
+
+enum ETypeModal {
+  Credential = 'credential',
+  Create = 'create',
+  Edit = 'edit',
+  Delete = 'delete'
+}
 
 export default function Home() {
-  return (
-    <main
-      className={`flex min-h-screen flex-col items-center justify-between p-24 ${inter.className}`}
-    >
-      <div className="z-10 max-w-5xl w-full items-center justify-between font-mono text-sm lg:flex">
-        <p className="fixed left-0 top-0 flex w-full justify-center border-b border-gray-300 bg-gradient-to-b from-zinc-200 pb-6 pt-8 backdrop-blur-2xl dark:border-neutral-800 dark:bg-zinc-800/30 dark:from-inherit lg:static lg:w-auto  lg:rounded-xl lg:border lg:bg-gray-200 lg:p-4 lg:dark:bg-zinc-800/30">
-          Get started by editing&nbsp;
-          <code className="font-mono font-bold">pages/index.tsx</code>
-        </p>
-        <div className="fixed bottom-0 left-0 flex h-48 w-full items-end justify-center bg-gradient-to-t from-white via-white dark:from-black dark:via-black lg:static lg:h-auto lg:w-auto lg:bg-none">
-          <a
-            className="pointer-events-none flex place-items-center gap-2 p-8 lg:pointer-events-auto lg:p-0"
-            href="https://vercel.com?utm_source=create-next-app&utm_medium=default-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            By{' '}
-            <Image
-              src="/vercel.svg"
-              alt="Vercel Logo"
-              className="dark:invert"
-              width={100}
-              height={24}
-              priority
-            />
-          </a>
-        </div>
-      </div>
+  const [modal, setModal] = useState<TModalState>({
+    type: null,
+    title: '',
+    open: false
+  });
+  const [selectedPost, setSelectedPost] = useState<number | null>(null);
+  const [formPostValues] = useState<FieldPostType>({
+    title: '',
+    body: ''
+  });
+  const [page, setPage] = useState<number>(1);
+  const [limit, setLimit] = useState<number>(10);
+  const [keyword, setKeyword] = useState('');
+  const [filterBy, setFilterBy] = useState<'title' | 'body'>('title');
+  const [ api, contextHolder ] = notification.useNotification();
+  const postForm = Form.useForm();
+  const router = useRouter();
+  const { setIsAccessToken } = useContext(CredentialContext) as TCredentialContext;
 
-      <div className="relative flex place-items-center before:absolute before:h-[300px] before:w-[480px] before:-translate-x-1/2 before:rounded-full before:bg-gradient-radial before:from-white before:to-transparent before:blur-2xl before:content-[''] after:absolute after:-z-20 after:h-[180px] after:w-[240px] after:translate-x-1/3 after:bg-gradient-conic after:from-sky-200 after:via-blue-200 after:blur-2xl after:content-[''] before:dark:bg-gradient-to-br before:dark:from-transparent before:dark:to-blue-700/10 after:dark:from-sky-900 after:dark:via-[#0141ff]/40 before:lg:h-[360px]">
-        <Image
-          className="relative dark:drop-shadow-[0_0_0.3rem_#ffffff70] dark:invert"
-          src="/next.svg"
-          alt="Next.js Logo"
-          width={180}
-          height={37}
-          priority
+  const params = {
+    page: page,
+    per_page: limit,
+    [filterBy]: keyword
+  };
+
+  const { 
+    postsData, 
+    postRefetch, 
+    postPagination, 
+    postIsLoading, 
+    postError, 
+  } =  usePostsList(params);
+
+  const { usersData } = useUsersList({}, { enabled: true });
+
+  const filterItems: MenuProps['items'] = [
+    {
+      key: '1',
+      onClick: () => setFilterBy('title'),
+      label: (
+        <div className={`${filterBy === 'title' ? 'text-[#36a2b5]' : ''}`}>
+          Search by title
+        </div>
+      ),
+    },
+    {
+      key: '2',
+      onClick: () => setFilterBy('body'),
+      label: (
+        <div className={`${filterBy === 'body' ? 'text-[#36a2b5]' : ''}`}>
+          Search by body
+        </div>
+      ),
+    },
+  ];
+
+  const handleChangeModal = (type: ETypeModal | null, title: string) => {
+    setModal((curr) => ({
+      ...curr,
+      type: type,
+      title: title,
+      open: !curr.open
+    }));
+  };
+
+  const handleEditPostModal = (post: { id: number } & FieldPostType) => {
+    setSelectedPost(post.id);
+    postForm[0].setFieldsValue({ title: post.title, body: post.body });
+    handleChangeModal(ETypeModal.Edit, 'Edit Post');
+  };
+
+  const handleDeletePost = (data: any) => {
+    setSelectedPost(data?.id);
+    handleChangeModal(ETypeModal.Delete, 'Delete Post');
+  };
+
+  const handleCloseModal = () => {
+    postForm[0].setFieldsValue({ title: '', body: '' });
+    setModal({ title: '', type: null, open: false })
+  };
+
+  const createPostMutation = useMutation({
+    mutationFn: postCreateService,
+    onSuccess: (res) => {
+
+      handleCloseModal();
+      
+      api.success({
+        message: 'Create new post success',
+        placement: 'top'
+      });
+
+      postRefetch();
+    }
+  });
+
+  const updatePostMutation = useMutation({
+    mutationFn: postUpdateService,
+    onSuccess: (res) => {
+      
+      handleCloseModal();
+      
+      api.success({
+        message: 'Edit post success',
+        placement: 'top'
+      });
+
+      postRefetch();
+    }
+  });
+
+  const deletePostMutation = useMutation({
+    mutationFn: postDeleteService,
+    onSuccess: (res) => {
+
+      handleCloseModal();
+      
+      api.success({
+        message: 'Delete post success',
+        placement: 'top'
+      });
+
+      postRefetch();
+    }
+  });
+
+  const onDeletePost = () => {
+    deletePostMutation.mutate(selectedPost);
+  };
+
+  const handleCreatePost: FormProps<FieldPostType>["onFinish"] = (payload) => {
+    // get a user data as sample to create post
+    let user = usersData.length > 0 ? usersData[0] : null;
+
+    if(user) {
+      createPostMutation.mutate({ payload, user });
+    } else {
+      api.error({
+        message: 'You need a user to create a post',
+        placement: 'top'
+      });
+    }
+  };
+
+  const handleEditPost: FormProps<FieldPostType>["onFinish"] = (payload) => {
+    updatePostMutation.mutate({ payload: payload, id: selectedPost });
+  };
+
+  const onSearch = debounce(
+    useCallback(
+      async (event) => {
+        setKeyword(() => {
+          if(event.target.value) return event.target.value;
+          return undefined;
+        });
+      },
+      []
+    ),
+    1000
+  );
+
+  useEffect(() => {
+    postRefetch();
+
+    return () => {
+      onSearch.cancel();
+    };
+  }, [keyword, page, limit]);
+
+  useEffect(() => {
+    if(postError?.status === 401) {
+      api.error({
+        message: postError?.response?.data?.message ?? 'Invalid token',
+        placement: 'top'
+      });
+    }
+  }, [postError]);
+
+  return (
+    <Layout>
+      {contextHolder}
+      <div className='flex gap-2 items-center'>
+        <AtomInput
+          prefix={<SearchOutlined />}
+          onChange={onSearch}
+          data-test="post-search-bar"
+          value={keyword}
+          {...(keyword !== "" && {
+            suffix: <CloseOutlined onClick={() => setKeyword("")} />
+          })}
+        />
+        <Dropdown menu={{ items: filterItems }}>
+          <AtomButton
+            icon={<FilterOutlined />}
+          />
+        </Dropdown>
+        <AtomButton
+          type="primary"
+          icon={<PlusOutlined />}
+          data-test="create-post"
+          onClick={() => handleChangeModal(ETypeModal.Create, 'Create Post')}
         />
       </div>
-
-      <div className="mb-32 grid text-center lg:max-w-5xl lg:w-full lg:mb-0 lg:grid-cols-4 lg:text-left">
-        <a
-          href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=default-template-tw&utm_campaign=create-next-app"
-          className="group rounded-lg border border-transparent px-5 py-4 transition-colors hover:border-gray-300 hover:bg-gray-100 hover:dark:border-neutral-700 hover:dark:bg-neutral-800/30"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <h2 className={`mb-3 text-2xl font-semibold`}>
-            Docs{' '}
-            <span className="inline-block transition-transform group-hover:translate-x-1 motion-reduce:transform-none">
-              -&gt;
-            </span>
-          </h2>
-          <p className={`m-0 max-w-[30ch] text-sm opacity-50`}>
-            Find in-depth information about Next.js features and API.
-          </p>
-        </a>
-
-        <a
-          href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=default-template-tw&utm_campaign=create-next-app"
-          className="group rounded-lg border border-transparent px-5 py-4 transition-colors hover:border-gray-300 hover:bg-gray-100 hover:dark:border-neutral-700 hover:dark:bg-neutral-800/30"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <h2 className={`mb-3 text-2xl font-semibold`}>
-            Learn{' '}
-            <span className="inline-block transition-transform group-hover:translate-x-1 motion-reduce:transform-none">
-              -&gt;
-            </span>
-          </h2>
-          <p className={`m-0 max-w-[30ch] text-sm opacity-50`}>
-            Learn about Next.js in an interactive course with&nbsp;quizzes!
-          </p>
-        </a>
-
-        <a
-          href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=default-template-tw&utm_campaign=create-next-app"
-          className="group rounded-lg border border-transparent px-5 py-4 transition-colors hover:border-gray-300 hover:bg-gray-100 hover:dark:border-neutral-700 hover:dark:bg-neutral-800/30"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <h2 className={`mb-3 text-2xl font-semibold`}>
-            Templates{' '}
-            <span className="inline-block transition-transform group-hover:translate-x-1 motion-reduce:transform-none">
-              -&gt;
-            </span>
-          </h2>
-          <p className={`m-0 max-w-[30ch] text-sm opacity-50`}>
-            Discover and deploy boilerplate example Next.js&nbsp;projects.
-          </p>
-        </a>
-
-        <a
-          href="https://vercel.com/new?utm_source=create-next-app&utm_medium=default-template-tw&utm_campaign=create-next-app"
-          className="group rounded-lg border border-transparent px-5 py-4 transition-colors hover:border-gray-300 hover:bg-gray-100 hover:dark:border-neutral-700 hover:dark:bg-neutral-800/30"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <h2 className={`mb-3 text-2xl font-semibold`}>
-            Deploy{' '}
-            <span className="inline-block transition-transform group-hover:translate-x-1 motion-reduce:transform-none">
-              -&gt;
-            </span>
-          </h2>
-          <p className={`m-0 max-w-[30ch] text-sm opacity-50`}>
-            Instantly deploy your Next.js site to a shareable URL with Vercel.
-          </p>
-        </a>
+      <div 
+        data-test={'posts-list'}
+        className='flex flex-col gap-2 p-4 sm:p-8 overflow-auto h-[calc(100vh-180px)]'
+      >
+        {postIsLoading ? (
+          <div className="flex justify-center gap-2 items-center w-full p-4">
+            <LoadingOutlined />
+            <h1 className='text-gray-600 font-semibold'>Loading...</h1>
+          </div>
+        ) : (
+          postsData.map((post: any, key: number) => (
+            <div 
+              key={'post-' + key}
+              className='flex justify-between gap-2 w-full p-2 border border-gray-400 rounded-lg'
+            >
+              <div className='flex flex-col w-full'>
+                <h1 
+                  data-test={`post-title-${key}`}
+                  className='text-gray-600 font-semibold text-base sm:text-lg'
+                >
+                  {post.title}
+                </h1>
+                <p 
+                  data-test={`post-body-${key}`}
+                  className='text-gray-600 text-sm sm:text-base text-ellipsis overflow-hidden w-full line-clamp-2'
+                >
+                  {post.body}
+                </p>
+              </div>
+              <div className='flex flex-col gap-2'>
+                <AtomButton 
+                  color="primary" 
+                  variant="solid" 
+                  icon={<InfoCircleFilled />}
+                  onClick={() => router.push(`/post/${post.id}`)}
+                  data-test={`post-detail-${key}`}
+                >
+                  Detail
+                </AtomButton>
+                <AtomButton 
+                  className='!bg-yellow-500 !text-white' 
+                  variant="solid" 
+                  icon={<EditFilled />}
+                  onClick={() => handleEditPostModal(post)}
+                  data-test={`post-edit-${key}`}
+                >
+                  Edit
+                </AtomButton>
+                <AtomButton 
+                  color="danger" 
+                  variant="solid" 
+                  icon={<DeleteOutlined />}
+                  onClick={() => handleDeletePost(post)}
+                  data-test={`post-delete-${key}`}
+                >
+                  Delete
+                </AtomButton>
+              </div>
+            </div>
+          ))
+        )}
       </div>
-    </main>
+      {(!isNaN(postPagination.page) || 
+        !isNaN(postPagination.total) || 
+        !isNaN(postPagination.limit)) && (
+        <div className="flex justify-center w-full">
+          <Pagination
+            defaultCurrent={postPagination.page}
+            total={postPagination.total}
+            pageSize={postPagination.limit}
+            className='text-xs sm:text-sm'
+            onChange={(page, pageSize) => { 
+              setPage(page); 
+              setLimit(pageSize); 
+            }}
+          />
+        </div>
+      )}
+
+      {/** Form Post Modal */}
+      <FormModal
+        open={modal.open && (modal.type === ETypeModal.Create || modal.type === ETypeModal.Edit)}
+        title={modal.title}
+        onCancel={handleCloseModal}
+        onFinish={modal.type === ETypeModal.Create ? handleCreatePost : handleEditPost}
+        form={postForm[0]}
+        initialValues={formPostValues}
+        loading={modal.type === ETypeModal.Create ? createPostMutation.isPending : updatePostMutation.isPending}
+      >
+        <Form.Item<FieldPostType> 
+          label="Title"
+          name="title"
+          rules={[{ required: true, message: 'Please input title' }]}
+          data-test="form-field-title"
+        >
+          <AtomInput className="w-full" />
+        </Form.Item>
+        <Form.Item<FieldPostType> 
+          label="Body"
+          name="body"
+          rules={[{ required: true, message: 'Please input body' }]}
+          data-test="form-field-body"
+        >
+          <TextArea 
+            rows={5}
+          />
+        </Form.Item>
+      </FormModal>
+
+      {/** Confirmation modal */}
+      <ConfirmModal
+        open={modal.open && modal.type === ETypeModal.Delete}
+        title={modal.title}
+        onOk={onDeletePost}
+        onCancel={handleCloseModal}
+        loading={deletePostMutation.isPending}
+      >
+        <h1>Are you sure want to delete this data?</h1>
+      </ConfirmModal>
+    </Layout>
   )
 }
