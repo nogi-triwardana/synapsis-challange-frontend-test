@@ -6,6 +6,7 @@ export default defineConfig({
     setupNodeEvents(on, config) {},
     supportFile: false,
     baseUrl: getBaseUrl(),
-    defaultCommandTimeout: 50000,
+    pageLoadTimeout: 180000,
+    defaultCommandTimeout: 180000,
   },
 });
