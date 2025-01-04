@@ -1,7 +1,6 @@
 
 describe('Posts Page', () => {
   it('should login and CRUD', () => {
-    
     // Start from the index page
     cy.visit('/')
 
@@ -20,19 +19,23 @@ describe('Posts Page', () => {
 
     cy.get('[data-test="submit-form-modal"]').click();
 
-    // should read a post at list
-    cy.get('[data-test="posts-list"]', { timeout: 10000 })
-      .eq(0)
-      .within(() => {
-        cy.get('[data-test="post-title-0"]').should("contain", "Title testing by cypress");
-        cy.get('[data-test="post-body-0"]').should("contain", "This is body testing created by cypress");
-        
-        cy.get('[data-test="post-detail-0"]').click();
-      })
-    
-    cy.wait(6000)
+    cy.intercept('GET', 'https://gorest.co.in/public/v2/posts').then(() => {
+      cy.get('[data-test="posts-list"]').should('exist');
 
-    cy.get('[data-test="back-button-detail-post"]').click();
+      // should read a post at list
+      cy.get('[data-test="posts-list"]', { timeout: 10000 })
+        .eq(0)
+        .within(() => {
+          cy.get('[data-test="post-title-0"]').should("contain", "Title testing by cypress");
+          cy.get('[data-test="post-body-0"]').should("contain", "This is body testing created by cypress");
+          
+          cy.get('[data-test="post-detail-0"]').click();
+        })
+  
+      cy.wait(6000)
+
+      cy.get('[data-test="back-button-detail-post"]').click();
+    });
 
     // should update a post at list
     cy.get('[data-test="posts-list"]')
